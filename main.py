@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from database import SessionLocal, engine, Base
 import models
 import schemas
+from typing import Optional
 
 # テーブルの作成
 Base.metadata.create_all(bind=engine)
@@ -46,3 +47,34 @@ def create_result_for_user(user_id: int, result: schemas.MatchResultCreate, db: 
     db.commit()
     db.refresh(db_result)
     return db_result
+
+# --- 読み込み（GET）機能を追加 ---
+
+# 1. 登録されている選手の一覧を取得する
+@app.get("/users/", response_model=list[schemas.User])
+def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    users = db.query(models.User).offset(skip).limit(limit).all()
+    return users
+
+# 2. 特定の選手の記録を取得する（種目で絞り込み可能）
+@app.get("/users/{user_id}/results/", response_model=list[schemas.MatchResult])
+def read_results_for_user(user_id: int, event_name: Optional[str] = None, db: Session = Depends(get_db)):
+    # まず「その選手の記録」というベースの検索条件を作る
+    query = db.query(models.MatchResult).filter(models.MatchResult.user_id == user_id)
+    
+    # もし「種目(event_name)」が指定されていたら、さらに条件を重ねる
+    if event_name:
+        query = query.filter(models.MatchResult.event_name == event_name)
+        
+    return query.all()
+
+# 3. 種目別の歴代ランキングを取得する（タイムが速い順）
+@app.get("/rankings/{event_name}", response_model=list[schemas.MatchResult])
+def read_event_ranking(event_name: str, limit: int = 10, db: Session = Depends(get_db)):
+    # 指定された種目の記録を、タイムの昇順（少ない＝速い順）で並び替え、上位を取得する
+    ranking = db.query(models.MatchResult)\
+                .filter(models.MatchResult.event_name == event_name)\
+                .order_by(models.MatchResult.time_seconds.asc())\
+                .limit(limit)\
+                .all()
+    return ranking

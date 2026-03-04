@@ -6,6 +6,7 @@ from typing import List, Optional
 class MatchResultBase(BaseModel):
     date: date
     event_name: str
+    competition_name: str
     time_seconds: float
     wind: float
 
