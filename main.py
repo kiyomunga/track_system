@@ -78,3 +78,27 @@ def read_event_ranking(event_name: str, limit: int = 10, db: Session = Depends(g
                 .limit(limit)\
                 .all()
     return ranking
+
+# 4. 特定の選手の特定種目における自己ベスト（PB）を取得する
+@app.get("/users/{user_id}/pb/{event_name}", response_model=schemas.MatchResult)
+def read_personal_best(user_id: int, event_name: str, db: Session = Depends(get_db)):
+    # 🌟 魔法のルール：名前に「跳」か「投」が含まれていればフィールド種目判定
+    is_field_event = "跳" in event_name or "投" in event_name
+
+    # ベースとなる検索条件（この選手、この種目）
+    query = db.query(models.MatchResult)\
+              .filter(models.MatchResult.user_id == user_id)\
+              .filter(models.MatchResult.event_name == event_name)
+
+    # 種目特性によって並び替え（ソート）の向きを逆転させる
+    if is_field_event:
+        # フィールド種目：値が大きい方が良いので、降順（desc）で並べて一番上を取る
+        pb = query.order_by(models.MatchResult.time_seconds.desc()).first()
+    else:
+        # トラック種目：値が小さい方が良いので、昇順（asc）で並べて一番上を取る
+        pb = query.order_by(models.MatchResult.time_seconds.asc()).first()
+           
+    if pb is None:
+        raise HTTPException(status_code=404, detail="該当する記録が見つかりません")
+        
+    return pb
