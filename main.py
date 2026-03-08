@@ -56,18 +56,6 @@ def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     users = db.query(models.User).offset(skip).limit(limit).all()
     return users
 
-# 2. 特定の選手の記録を取得する（種目で絞り込み可能）
-@app.get("/users/{user_id}/results/", response_model=list[schemas.MatchResult])
-def read_results_for_user(user_id: int, event_name: Optional[str] = None, db: Session = Depends(get_db)):
-    # まず「その選手の記録」というベースの検索条件を作る
-    query = db.query(models.MatchResult).filter(models.MatchResult.user_id == user_id)
-    
-    # もし「種目(event_name)」が指定されていたら、さらに条件を重ねる
-    if event_name:
-        query = query.filter(models.MatchResult.event_name == event_name)
-        
-    return query.all()
-
 # 3. 種目別の歴代ランキングを取得する（タイムが速い順）
 @app.get("/rankings/{event_name}", response_model=list[schemas.MatchResult])
 def read_event_ranking(event_name: str, limit: int = 10, db: Session = Depends(get_db)):
@@ -102,3 +90,52 @@ def read_personal_best(user_id: int, event_name: str, db: Session = Depends(get_
         raise HTTPException(status_code=404, detail="該当する記録が見つかりません")
         
     return pb
+
+# 5. 登録されている全ユーザー（選手）のリストを取得する
+@app.get("/users/", response_model=list[schemas.User])
+def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    users = db.query(models.User).offset(skip).limit(limit).all()
+    return users
+
+# 6. 特定の選手の全競技履歴を日付の降順（新しい順）で取得する
+@app.get("/users/{user_id}/results/", response_model=list[schemas.MatchResult])
+def read_user_results(user_id: int, db: Session = Depends(get_db)):
+    # .order_by(models.MatchResult.date.desc()) が「日付の新しい順」というSQLの魔法です
+    results = db.query(models.MatchResult)\
+                .filter(models.MatchResult.user_id == user_id)\
+                .order_by(models.MatchResult.date.desc())\
+                .all()
+    return results
+
+# 7. 練習記録（親）とメニュー（子）を一括で保存する
+@app.post("/users/{user_id}/practices/")
+def create_practice(user_id: int, practice: schemas.PracticeSessionCreate, db: Session = Depends(get_db)):
+    # ① まず親（その日のコンディション等）を保存する
+    db_session = models.PracticeSession(
+        user_id=user_id,
+        date=practice.date,
+        rpe=practice.rpe,
+        sleep_hours=practice.sleep_hours,
+        body_weight=practice.body_weight,
+        memo=practice.memo
+    )
+    db.add(db_session)
+    db.commit()
+    db.refresh(db_session) # 🌟 これで親の「ID」が確定する
+
+    # ② 送られてきたメニュー（子）をループして、すべて親のIDと紐づけて保存する
+    for menu in practice.menus:
+        db_menu = models.PracticeMenu(
+            session_id=db_session.id, # 確定した親IDをセット！
+            category=menu.category,
+            menu_name=menu.menu_name,
+            distance=menu.distance,
+            weight=menu.weight,
+            reps=menu.reps,
+            sets=menu.sets,
+            time_seconds=menu.time_seconds
+        )
+        db.add(db_menu)
+    
+    db.commit() # 最後にまとめて金庫の扉を閉める
+    return {"message": "練習記録とメニューの保存に成功しました！"}

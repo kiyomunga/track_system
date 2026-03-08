@@ -33,3 +33,23 @@ class User(UserBase):
 
     class Config:
         from_attributes = True
+
+# ＝＝＝ 📝 練習メニュー（子）の受け取りルール ＝＝＝
+class PracticeMenuCreate(BaseModel):
+    category: str
+    menu_name: str
+    distance: Optional[float] = None
+    weight: Optional[float] = None
+    reps: Optional[int] = None
+    sets: Optional[int] = None
+    time_seconds: Optional[float] = None
+
+# ＝＝＝ 🏃‍♂️ 練習セッション（親）の受け取りルール ＝＝＝
+class PracticeSessionCreate(BaseModel):
+    date: date
+    rpe: Optional[int] = None
+    sleep_hours: Optional[float] = None
+    body_weight: Optional[float] = None
+    memo: Optional[str] = None
+    # 🌟 ここで「複数の子メニュー」をリストとして丸ごと受け取る！
+    menus: List[PracticeMenuCreate]
