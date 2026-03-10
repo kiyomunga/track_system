@@ -23,6 +23,7 @@ class MatchResult(MatchResultBase):
 # --- 選手（User）の型 ---
 class UserBase(BaseModel):
     name: str
+    block: Optional[str] = None
 
 class UserCreate(UserBase):
     pass

@@ -1,209 +1,124 @@
 import streamlit as st
 import requests
-from datetime import datetime
 import pandas as pd
+from datetime import datetime
 
 API_URL = "http://localhost:8000"
 
-st.set_page_config(page_title="Track Analytics", page_icon="🏃‍♂️")
+st.set_page_config(page_title="Track Analytics", page_icon="🏃‍♂️", layout="wide")
 
-# ＝＝＝ 🧠 Session State（状態管理）の初期化 ＝＝＝
-# 「現在選ばれている選手」の記憶がなければ、空（None）にしておく
-if "selected_user_id" not in st.session_state:
-    st.session_state.selected_user_id = None
-if "selected_user_name" not in st.session_state:
-    st.session_state.selected_user_name = None
-
+# --- 🏟️ マスタデータ ---
 TRACK_AND_FIELD_EVENTS = (
     "100m", "200m", "400m", "800m", "1500m", "3000m", "5000m", "10000m",
-    "100mH", "110mH", "400mH", "3000mSC", "4x100mR", "4x400mR",
-    "走高跳", "棒高跳", "走幅跳", "三段跳",
-    "砲丸投", "円盤投", "ハンマー投", "やり投",
-    "十種競技", "七種競技", "5000mW", "10000mW", "20kmW"
+    "100mH", "110mH", "400mH", "3000mSC", "走高跳", "棒高跳", "走幅跳", "三段跳", "砲丸投", "円盤投", "ハンマー投", "やり投"
+)
+COMPETITION_MASTER = (
+    "関東学生陸上競技対校選手権大会(関カレ)", "日本学生陸上競技対校選手権大会(全カレ)",
+    "国公立27大学対校陸上競技大会", "四大戦", "春季記録会", "秋季記録会", "その他"
 )
 
-# 🟩🟩🟩 画面①：トップページ（誰も選ばれていない時） 🟩🟩🟩
-if st.session_state.selected_user_id is None:
-    st.title("🏃‍♂️ トラック・アナリティクス v2.0")
-    st.write("一橋大学・津田塾大学 陸上競技部 短距離ブロック専用プラットフォーム")
-    
-    st.markdown("---")
-    st.subheader("🔍 選手の検索・選択")
-    
+# --- 🧠 データ取得関数 ---
+@st.cache_data(ttl=60)
+def get_users():
     try:
-        users_response = requests.get(f"{API_URL}/users/?limit=1000")
-        if users_response.status_code == 200:
-            user_list = users_response.json()
-            if not user_list:
-                st.warning("⚠️ 登録されている選手がいません。")
-                st.stop()
-                
-            user_options = {user["name"]: user["id"] for user in user_list}
-            
-            # ドロップダウン（Streamlitのselectboxは文字入力で検索も可能です）
-            selected_name = st.selectbox(
-                "選手名を選択、または入力して検索してください", 
-                ["-- 選択してください --"] + list(user_options.keys())
-            )
-            
-            if st.button("選手のページへ移動 ➡️"):
-                if selected_name != "-- 選択してください --":
-                    # 選ばれた選手を「記憶」に書き込み、画面をリロード（rerun）する
-                    st.session_state.selected_user_id = user_options[selected_name]
-                    st.session_state.selected_user_name = selected_name
-                    st.rerun()
-                else:
-                    st.error("選手を選択してください。")
-        else:
-            st.error("ユーザー情報の取得に失敗しました。")
-    except requests.exceptions.ConnectionError:
-        st.error("🚨 サーバー通信エラー。")
+        res = requests.get(f"{API_URL}/users/?limit=1000")
+        return res.json() if res.status_code == 200 else []
+    except:
+        return []
 
+users_data = get_users()
+if not users_data:
+    st.error("🚨 サーバー通信エラー、またはユーザーが0人です。")
+    st.stop()
 
-# 🟦🟦🟦 画面②：選手個別ページ（誰かが選ばれている時） 🟦🟦🟦
-else:
-    # 記憶から選手情報を引き出す
-    USER_ID = st.session_state.selected_user_id
-    selected_user_name = st.session_state.selected_user_name
+user_dict = {u["name"]: u["id"] for u in users_data}
+user_names = list(user_dict.keys())
+
+# --- 🔐 サイドバー ---
+mode = st.sidebar.radio("モード選択", ["🏃‍♂️ 選手モード（記録確認）", "📝 マネージャーモード（一括入力）"])
+
+# 🟩 モード1：選手モード（陸マガ風UI）
+if mode == "🏃‍♂️ 選手モード（記録確認）":
+    st.title("🏃‍♂️ トラック・アナリティクス v3.0")
     
-    # ヘッダー領域（戻るボタン付き）
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        st.title(f"🏃‍♂️ {selected_user_name} のページ")
-    with col2:
-        if st.button("🔙 検索に戻る"):
-            # 記憶を消去して画面をリロードし、トップページに戻る
-            st.session_state.selected_user_id = None
-            st.session_state.selected_user_name = None
-            st.rerun()
+    blocks = list(set([u.get("block", "未設定") for u in users_data if u.get("block")]))
+    c_b, c_u = st.columns(2)
+    with c_b:
+        selected_block = st.selectbox("1. パートを選択", ["すべてのパート"] + blocks)
+    
+    filtered_users = [u["name"] for u in users_data if selected_block == "すべてのパート" or u.get("block") == selected_block]
+    with c_u:
+        selected_user = st.selectbox("2. 選手を選択", ["-- 選択してください --"] + filtered_users)
 
-    st.markdown("---")
-    tab_match, tab_practice = st.tabs(["🏆 試合記録", "🏃‍♂️ 練習メニュー"])
-
-    # ▼▼▼ タブ1：試合記録 ▼▼▼
-    with tab_match:
-        with st.form("result_form"):
-            st.write(f"**【 {selected_user_name} 】の試合記録を登録**")
-            date = st.date_input("日付", datetime.today())
-            competition_name = st.text_input("大会名", placeholder="例：春季記録会")
-            event_name = st.selectbox("種目", TRACK_AND_FIELD_EVENTS)
-            time_seconds = st.number_input("記録（タイムまたは距離）", min_value=0.0, step=0.01, format="%.2f")
-            wind = st.number_input("風速（m/s）※跳躍・短距離のみ", value=0.0, step=0.1, format="%.1f")
-            submitted = st.form_submit_button("記録を保存する")
-
-        if submitted:
-            if competition_name == "" or time_seconds == 0.0:
-                st.error("エラー：大会名と記録は必ず入力してください。")
-            else:
-                payload = {
-                    "date": date.isoformat(),
-                    "event_name": event_name,
-                    "competition_name": competition_name,
-                    "time_seconds": time_seconds,
-                    "wind": wind
-                }
-                try:
-                    response = requests.post(f"{API_URL}/users/{USER_ID}/results/", json=payload)
-                    if response.status_code == 200:
-                        st.success(f"✅ {selected_user_name} の記録が正常に保存されました！")
-                    else:
-                        st.error(f"保存失敗: {response.text}")
-                except requests.exceptions.ConnectionError:
-                    st.error("🚨 サーバー通信エラー。")
-
-        st.markdown("---")
-        st.subheader(f"🏆 {selected_user_name} の自己ベスト (PB)")
-        pb_event_name = st.selectbox("PBを確認する種目", TRACK_AND_FIELD_EVENTS, key="pb_select")
-
-        if st.button(f"{pb_event_name} のPBを呼び出す"):
-            try:
-                pb_response = requests.get(f"{API_URL}/users/{USER_ID}/pb/{pb_event_name}")
-                if pb_response.status_code == 200:
-                    pb_data = pb_response.json()
-                    st.success(f"🔥 {pb_event_name} の自己ベスト: {pb_data['time_seconds']} （大会名: {pb_data['competition_name']} / 記録日: {pb_data['date']}）")
-                elif pb_response.status_code == 404:
-                    st.info(f"まだ {pb_event_name} の記録がありません。")
-                else:
-                    st.error("取得失敗")
-            except requests.exceptions.ConnectionError:
-                st.error("🚨 サーバー通信エラー。")
-
-        st.markdown("---")
-        st.subheader(f"📜 {selected_user_name} の競技履歴")
-        try:
-            history_response = requests.get(f"{API_URL}/users/{USER_ID}/results/")
-            if history_response.status_code == 200:
-                history_data = history_response.json()
-                if not history_data:
-                    st.info("まだ競技履歴が登録されていません。")
-                else:
-                    grouped_history = {}
-                    for result in history_data:
-                        group_key = f"📅 {result['date']} ｜ {result['competition_name']}"
-                        if group_key not in grouped_history:
-                            grouped_history[group_key] = []
-                        grouped_history[group_key].append(result)
-
-                    for group_key, results_list in grouped_history.items():
-                        with st.expander(group_key):
-                            for res in results_list:
-                                wind_text = f" / **風速**: {res['wind']} m/s" if res['wind'] != 0.0 else ""
-                                st.write(f"🏃‍♂️ **{res['event_name']}** ｜ **記録**: {res['time_seconds']} {wind_text}")
-        except requests.exceptions.ConnectionError:
-            st.error("🚨 サーバー通信エラー。")
-
-        # ▼▼▼ タブ2：練習メニュー ▼▼▼
-    with tab_practice:
-        st.subheader(f"🏃‍♂️ {selected_user_name} の練習メニューを登録")
+    if selected_user != "-- 選択してください --":
+        user_id = user_dict[selected_user]
         
-        with st.form("practice_form"):
-            st.write("**① コンディション入力（親データ）**")
-            p_date = st.date_input("練習日", datetime.today(), key="p_date")
+        # --- 🎨 陸マガ風カスタムCSS ---
+        st.markdown("""
+            <style>
+            .riku-header { background-color: #A52A2A; color: white; padding: 5px 15px; font-weight: bold; border-radius: 5px; margin-bottom: 10px; }
+            .year-title { background-color: #f0f2f6; color: #A52A2A; padding: 5px 10px; font-size: 20px; font-weight: bold; text-align: center; border-radius: 5px; margin-top: 15px; }
+            </style>
+        """, unsafe_allow_html=True)
+
+        history_res = requests.get(f"{API_URL}/users/{user_id}/results/")
+        if history_res.status_code == 200 and history_res.json():
+            df = pd.DataFrame(history_res.json())
+            df["date"] = pd.to_datetime(df["date"])
             
-            # 3列に分けて数値を入力しやすくする
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                rpe = st.number_input("疲労度(RPE 1-10)", min_value=1, max_value=10, value=5)
-            with col2:
-                sleep = st.number_input("前夜の睡眠時間(h)", min_value=0.0, step=0.5, value=7.0)
-            with col3:
-                weight = st.number_input("体重(kg)", min_value=0.0, step=0.1, value=65.0)
+            # 1. 年次ベスト
+            st.markdown('<div class="riku-header">年次ベスト（公認のみ）</div>', unsafe_allow_html=True)
+            for event in df["event_name"].unique():
+                st.markdown(f"**{event} 年次ベスト**")
+                event_df = df[df["event_name"] == event]
+                pb_row = event_df.sort_values("time_seconds").iloc[0]
                 
-            memo = st.text_area("総括メモ", placeholder="例：アップ時のハムストリングスの張り感など")
+                c1, c2, c3 = st.columns([1, 1, 2])
+                c1.caption("年月日"); c2.caption("区分"); c3.caption("記録")
+                r1, r2, r3 = st.columns([1, 1, 2])
+                r1.write(pb_row["date"].strftime("%y/%m/%d"))
+                r2.write("大学")
+                r3.write(f"**<span style='color:red'>PB</span> {pb_row['time_seconds']}**", unsafe_allow_html=True)
 
-            st.markdown("---")
-            st.write("**② 練習メニュー入力（子データ）**")
-            st.info("💡 下の表を直接クリックして編集できます。左下の「＋」マークで行の追加・削除が可能です。")
-            
-            # 初期データ（サンプルの行を1つ用意）
-            init_df = pd.DataFrame([
-                {"category": "スプリント", "menu_name": "30m", "distance": 30.0, "weight": 0.0, "reps": 3, "sets": 2, "time_seconds": 4.10}
-            ])
-            
-            # Streamlitの超強力な「編集可能データフレーム」
-            edited_df = st.data_editor(init_df, num_rows="dynamic", use_container_width=True)
-            
-            p_submitted = st.form_submit_button("練習記録とメニューを保存する")
+            # 2. 競技履歴
+            st.markdown('<div class="riku-header">競技履歴</div>', unsafe_allow_html=True)
+            df["year"] = df["date"].dt.year
+            for year in sorted(df["year"].unique(), reverse=True):
+                st.markdown(f'<div class="year-title">{year}</div>', unsafe_allow_html=True)
+                year_df = df[df["year"] == year].sort_values("date", ascending=False)
+                for _, row in year_df.iterrows():
+                    with st.expander(f"📅 {row['date'].strftime('%Y-%m-%d')} ~ {row['competition_name']}"):
+                        ca, cb, cc = st.columns(3)
+                        ca.metric("種目", row["event_name"])
+                        cb.metric("記録", f"{row['time_seconds']}秒")
+                        cc.metric("風速", f"{row['wind']:+.1f}m")
+        else:
+            st.info("まだ競技記録が登録されていません。")
 
-        if p_submitted:
-            # 表（データフレーム）のデータを、APIに送れる形式（辞書のリスト）に変換
-            menus_list = edited_df.to_dict(orient="records")
+# 🟦 モード2：マネージャーモード
+elif mode == "📝 マネージャーモード（一括入力）":
+    st.title("📝 一括入力ダッシュボード")
+    auth = st.text_input("アクセスキーを入力", type="password")
+    if auth == "mgr2026":
+        with st.form("bulk_input"):
+            col1, col2 = st.columns(2)
+            with col1: d = st.date_input("開催日", datetime.today())
+            with col2: n = st.selectbox("大会名", COMPETITION_MASTER)
             
-            payload = {
-                "date": p_date.isoformat(),
-                "rpe": rpe,
-                "sleep_hours": sleep,
-                "body_weight": weight,
-                "memo": memo,
-                "menus": menus_list
-            }
-            
-            try:
-                p_res = requests.post(f"{API_URL}/users/{USER_ID}/practices/", json=payload)
-                if p_res.status_code == 200:
-                    st.success("✅ 練習記録とメニューが金庫に保存されました！")
-                else:
-                    st.error(f"保存失敗: {p_res.text}")
-            except requests.exceptions.ConnectionError:
-                st.error("🚨 サーバー通信エラー。")
-
+            init_df = pd.DataFrame([{"選手名": user_names[0] if user_names else "", "種目": "100m", "記録": 0.0, "風速": 0.0}])
+            edited_df = st.data_editor(init_df, num_rows="dynamic", use_container_width=True,
+                column_config={
+                    "選手名": st.column_config.SelectboxColumn("選手名", options=user_names, required=True),
+                    "種目": st.column_config.SelectboxColumn("種目", options=TRACK_AND_FIELD_EVENTS, required=True),
+                    "記録": st.column_config.NumberColumn("記録", min_value=0.0, format="%.2f", required=True),
+                    "風速": st.column_config.NumberColumn("風速", format="%.1f")
+                })
+            if st.form_submit_button("一括保存"):
+                sc = 0
+                for _, row in edited_df.iterrows():
+                    if row["記録"] > 0:
+                        requests.post(f"{API_URL}/users/{user_dict[row['選手名']]}/results/", 
+                                      json={"date": d.isoformat(), "event_name": row["種目"], "competition_name": n, "time_seconds": row["記録"], "wind": row["風速"]})
+                        sc += 1
+                if sc > 0:
+                    st.success(f"{sc}件保存完了"); st.cache_data.clear()

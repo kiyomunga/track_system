@@ -32,7 +32,7 @@ def test_db(db: Session = Depends(get_db)):
 @app.post("/users/", response_model=schemas.User)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     # models.User（DBの型）に、schemas（入力されたデータ）を変換して入れる
-    db_user = models.User(name=user.name)
+    db_user = models.User(name=user.name, block=user.block)
     db.add(db_user)      # DBに追加の準備
     db.commit()          # 実際に保存（コミット）
     db.refresh(db_user)  # 保存したデータ（自動で付いたIDなど）を最新化して取り出す
@@ -139,3 +139,16 @@ def create_practice(user_id: int, practice: schemas.PracticeSessionCreate, db: S
     
     db.commit() # 最後にまとめて金庫の扉を閉める
     return {"message": "練習記録とメニューの保存に成功しました！"}
+
+# ＝＝＝ 🗑️ ユーザー削除API ＝＝＝
+@app.delete("/users/{user_id}")
+def delete_user(user_id: int, db: Session = Depends(get_db)):
+    # データベースから該当のIDを持つユーザーを探す
+    db_user = db.query(models.User).filter(models.User.id == user_id).first()
+    
+    if db_user:
+        db.delete(db_user) # 見つかったら削除
+        db.commit()        # 金庫の変更を確定
+        return {"message": f"ユーザーID {user_id} を完全に削除しました。"}
+    
+    return {"error": "そのユーザーは見つかりません。"}
