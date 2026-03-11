@@ -66,19 +66,31 @@ if mode == "🏃‍♂️ 選手モード（記録確認）":
             df = pd.DataFrame(history_res.json())
             df["date"] = pd.to_datetime(df["date"])
             
-            # 1. 年次ベスト
-            st.markdown('<div class="riku-header">年次ベスト（公認のみ）</div>', unsafe_allow_html=True)
+            # 1. PB ＆ SB（修正版：論理的破綻を解消し、正確に描画）
+            st.markdown('<div class="riku-header">自己ベスト（PB）＆ シーズンベスト（SB）</div>', unsafe_allow_html=True)
+            current_year = datetime.now().year
+            
             for event in df["event_name"].unique():
-                st.markdown(f"**{event} 年次ベスト**")
+                st.markdown(f"**【 {event} 】**")
                 event_df = df[df["event_name"] == event]
+                
+                # PB（全期間の最小値）
                 pb_row = event_df.sort_values("time_seconds").iloc[0]
                 
+                # SB（今年の最小値）
+                sb_df = event_df[event_df["date"].dt.year == current_year]
+                if not sb_df.empty:
+                    sb_val = sb_df.sort_values("time_seconds").iloc[0]["time_seconds"]
+                    sb_text = f"{sb_val}秒"
+                else:
+                    sb_text = "記録なし"
+                
                 c1, c2, c3 = st.columns([1, 1, 2])
-                c1.caption("年月日"); c2.caption("区分"); c3.caption("記録")
+                c1.caption("PB達成日"); c2.caption("今年のSB"); c3.caption("自己ベスト(PB)")
                 r1, r2, r3 = st.columns([1, 1, 2])
                 r1.write(pb_row["date"].strftime("%y/%m/%d"))
-                r2.write("大学")
-                r3.write(f"**<span style='color:red'>PB</span> {pb_row['time_seconds']}**", unsafe_allow_html=True)
+                r2.write(sb_text)
+                r3.write(f"**<span style='color:red'>{pb_row['time_seconds']}秒</span>**", unsafe_allow_html=True)
 
             # 2. 競技履歴
             st.markdown('<div class="riku-header">競技履歴</div>', unsafe_allow_html=True)
@@ -115,10 +127,22 @@ elif mode == "📝 マネージャーモード（一括入力）":
                 })
             if st.form_submit_button("一括保存"):
                 sc = 0
+                err_count = 0
                 for _, row in edited_df.iterrows():
                     if row["記録"] > 0:
-                        requests.post(f"{API_URL}/users/{user_dict[row['選手名']]}/results/", 
-                                      json={"date": d.isoformat(), "event_name": row["種目"], "competition_name": n, "time_seconds": row["記録"], "wind": row["風速"]})
-                        sc += 1
+                        # 🚨 脆弱性修正：例外処理とステータスコードの厳格なチェックを追加
+                        try:
+                            res = requests.post(f"{API_URL}/users/{user_dict[row['選手名']]}/results/", 
+                                          json={"date": d.isoformat(), "event_name": row["種目"], "competition_name": n, "time_seconds": row["記録"], "wind": row["風速"]})
+                            if res.status_code == 200:
+                                sc += 1
+                            else:
+                                err_count += 1
+                        except Exception as e:
+                            err_count += 1
+                
                 if sc > 0:
-                    st.success(f"{sc}件保存完了"); st.cache_data.clear()
+                    st.success(f"✅ {sc}件の記録を保存しました！")
+                    st.cache_data.clear()
+                if err_count > 0:
+                    st.error(f"🚨 {err_count}件の保存に失敗しました。通信状況や入力データを確認してください。")
