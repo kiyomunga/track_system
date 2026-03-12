@@ -4,11 +4,14 @@ from typing import List, Optional
 
 # --- 記録（MatchResult）の型 ---
 class MatchResultBase(BaseModel):
-    date: date
+    date: str
     event_name: str
     competition_name: str
-    time_seconds: float
-    wind: float
+    time_seconds: Optional[float] = None
+    wind: Optional[float] = None
+    round: Optional[str] = None
+    status: Optional[str] = None
+    attempts_detail: Optional[str] = None
 
 class MatchResultCreate(MatchResultBase):
     pass
@@ -24,6 +27,8 @@ class MatchResult(MatchResultBase):
 class UserBase(BaseModel):
     name: str
     block: Optional[str] = None
+    enrollment_year: Optional[int] = None
+    is_active: Optional[bool] = True
 
 class UserCreate(UserBase):
     pass

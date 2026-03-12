@@ -1,30 +1,40 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Date
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Date, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
 
+# --- User クラスの変更 ---
 class User(Base):
     __tablename__ = "users"
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
     block = Column(String, index=True, nullable=True)
+    
+    # 🌟 ここを追加！：スケーラビリティとUB計算のための属性
+    enrollment_year = Column(Integer, nullable=True) # 入学年度（例：2025）
+    is_active = Column(Boolean, default=True)        # 現役/引退フラグ（デフォは現役）
+
     results = relationship("MatchResult", back_populates="user")
 
+# --- MatchResult クラスの変更 ---
 class MatchResult(Base):
     __tablename__ = "match_results"
+
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    date = Column(Date)
+    date = Column(String, index=True)
+    event_name = Column(String, index=True)
+    competition_name = Column(String)
+    time_seconds = Column(Float, nullable=True) # DQやDNSの時はここは空(Null)になる
+    wind = Column(Float, nullable=True)
     
-    # DB上は単なる文字列（String）に戻す！
-    event_name = Column(String)
-    
-    # 大会名を追加
-    competition_name = Column(String) 
-    
-    time_seconds = Column(Float)
-    wind = Column(Float)
-    
+    # 🌟 ここを追加！：競技ドメインへの完全対応
+    round = Column(String, nullable=True)           # 予選、準決勝、決勝など
+    status = Column(String, nullable=True)          # DNS, DNF, DQ, NM など
+    attempts_detail = Column(String, nullable=True) # 跳躍/投擲の全試技（カンマ区切り等）
+
     user = relationship("User", back_populates="results")
+
 
 # ＝＝＝ 🏃‍♂️ 練習記録（親）テーブル ＝＝＝
 class PracticeSession(Base):
