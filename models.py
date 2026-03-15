@@ -49,6 +49,7 @@ class PracticeSession(Base):
     sleep_hours = Column(Float, nullable=True)   # 睡眠時間
     body_weight = Column(Float, nullable=True)   # 体重
     memo = Column(String, nullable=True)         # その日の総括メモ
+    menus = relationship("PracticeMenu", back_populates="session")
 
 # ＝＝＝ 📝 練習メニュー（子）テーブル ＝＝＝
 class PracticeMenu(Base):
@@ -67,3 +68,5 @@ class PracticeMenu(Base):
     reps = Column(Integer, nullable=True)    # 本数/回数
     sets = Column(Integer, nullable=True)    # セット数
     time_seconds = Column(Float, nullable=True) # タイム（かかった秒数）
+    times_detail = Column(String, nullable=True)
+    session = relationship("PracticeSession", back_populates="menus")

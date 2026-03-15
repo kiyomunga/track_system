@@ -38,7 +38,7 @@ user_dict = {u["name"]: u["id"] for u in users_data}
 user_names = list(user_dict.keys())
 
 # --- 🔐 サイドバー ---
-mode = st.sidebar.radio("モード選択", ["🏃‍♂️ 選手モード（記録確認）", "📝 マネージャーモード（管理）"])
+mode = st.sidebar.radio("モード選択", ["🏃‍♂️ 選手モード（記録確認）", "📝 マネージャーモード（管理）", "📱 練習日誌モード（入力）", "📊 アナリティクス（分析）"])
 
 # 🟩 モード1：選手モード（陸マガ風UI ＆ UB完全対応）
 if mode == "🏃‍♂️ 選手モード（記録確認）":
@@ -234,3 +234,188 @@ elif mode == "📝 マネージャーモード（管理）":
                         st.cache_data.clear()
                     else:
                         st.error("🚨 削除に失敗しました。")
+
+# 🟩🟩🟩 モード3：練習日誌モード（10.70秒へのデータ蓄積） 🟩🟩🟩
+elif mode == "📱 練習日誌モード（入力）":
+    st.title("📱 練習日誌 ＆ メニュー入力")
+    st.info("日々のコンディションと練習メニューを記録し、10.70秒への相関を分析します。")
+
+    selected_user = st.selectbox("選手を選択（あなた）", user_names)
+    user_id = user_dict[selected_user]
+
+    # 🌟 魔法の機能：メニュー数を一時記憶（Session State）して動的に増やす・減らす
+    if "menu_count" not in st.session_state:
+        st.session_state.menu_count = 1
+
+    def add_menu():
+        st.session_state.menu_count += 1
+        
+    def remove_menu():
+        if st.session_state.menu_count > 1: # 1個未満には減らせないようにする安全装置
+            st.session_state.menu_count -= 1
+
+    with st.form("practice_form"):
+        st.subheader("1. 本日のコンディション（親データ）")
+        col1, col2 = st.columns(2)
+        with col1:
+            p_date = st.date_input("日付", datetime.today())
+            sleep = st.number_input("睡眠時間 (時間)", min_value=0.0, max_value=24.0, value=7.5, step=0.5)
+        with col2:
+            rpe = st.slider("RPE (主観的疲労度 1:楽 〜 10:限界)", 1, 10, 5)
+            weight = st.number_input("体重 (kg) ※任意", min_value=0.0, value=0.0, step=0.1)
+        
+        memo = st.text_area("練習全体のメモ・気づき・動きの感覚")
+
+        st.markdown("---")
+        st.subheader("2. 練習メニュー（子データ）")
+        
+        menus_data = []
+        for i in range(st.session_state.menu_count):
+            st.markdown(f"**【 メニュー {i+1} 】**")
+            mc1, mc2, mc3 = st.columns(3)
+            with mc1:
+                category = st.selectbox("カテゴリー", ["スプリント", "ウエイト", "ジャンプ", "ドリル", "その他"], key=f"cat_{i}")
+                menu_name = st.text_input("メニュー名 (例: 60m, ハイクリーン)", key=f"name_{i}")
+            with mc2:
+                distance = st.number_input("距離(m)", min_value=0.0, value=0.0, key=f"dist_{i}")
+                # 🌟 変更：タイムを文字列入力（カンマ区切り）に変更
+                time_str = st.text_input("タイム(秒) ※カンマ区切りで複数可", placeholder="例: 7.10, 7.15", key=f"time_{i}")
+            with mc3:
+                wt = st.number_input("重量(kg)", min_value=0.0, value=0.0, key=f"wt_{i}")
+                reps = st.number_input("回数(Reps)", min_value=0, value=0, key=f"reps_{i}")
+                sets = st.number_input("セット数", min_value=0, value=0, key=f"sets_{i}")
+            
+            # 🌟 魔法の処理：カンマ区切りの文字列から「一番速いタイム」を自動計算する
+            best_time = None
+            if time_str.strip():
+                try:
+                    # カンマで分割し、空白を消して小数に変換（例: ["7.10", "7.15"] -> [7.1, 7.15]）
+                    times_list = [float(t.strip()) for t in time_str.split(",") if t.strip()]
+                    if times_list:
+                        best_time = min(times_list) # スプリントは値が小さい（速い）方がベスト
+                except ValueError:
+                    st.error(f"メニュー {i+1} のタイム入力に誤りがあります。数字とカンマのみを使用してください。")
+            
+            menus_data.append({
+                "category": category,
+                "menu_name": menu_name,
+                "distance": distance if distance > 0 else None,
+                "weight": wt if wt > 0 else None,
+                "reps": reps if reps > 0 else None,
+                "sets": sets if sets > 0 else None,
+                "time_seconds": best_time,             # グラフ用のベストタイム
+                "times_detail": time_str.strip() if time_str.strip() else None # 全タイムの文字列
+            })
+            st.markdown("---")
+
+        submitted = st.form_submit_button("💾 今日の練習をデータベースに保存")
+
+    # 🌟 フォームの外に「追加」と「削除」ボタンを横並びで配置
+    btn_col1, btn_col2 = st.columns(2)
+    with btn_col1:
+        st.button("➕ メニューを増やす", on_click=add_menu, use_container_width=True)
+    with btn_col2:
+        st.button("➖ メニューを減らす", on_click=remove_menu, use_container_width=True)
+
+    if submitted:
+        # メニュー名が空欄の行は除外して送信する（安全装置）
+        valid_menus = [m for m in menus_data if m["menu_name"].strip() != ""]
+        
+        payload = {
+            "date": p_date.isoformat(),
+            "rpe": rpe,
+            "sleep_hours": sleep if sleep > 0 else None,
+            "body_weight": weight if weight > 0 else None,
+            "memo": memo,
+            "menus": valid_menus
+        }
+        
+        try:
+            res = requests.post(f"{API_URL}/users/{user_id}/practices/", json=payload)
+            if res.status_code == 200:
+                st.success("✅ 練習記録を保存しました！10.70秒へのデータがまた一つ蓄積されました。")
+                st.session_state.menu_count = 1 # 保存成功したら入力欄の数を1に戻す
+            else:
+                st.error("🚨 保存エラー: データを正しく入力してください。")
+        except Exception as e:
+            st.error(f"通信エラー: {e}")
+
+# 🟩🟩🟩 モード4：アナリティクス（データ分析） 🟩🟩🟩
+elif mode == "📊 アナリティクス（分析）":
+    st.title("📊 10.70秒への軌跡（データ分析ダッシュボード）")
+    st.info("日々のコンディション（RPE・睡眠）とスプリントタイム・挙上重量の相関を分析します。")
+
+    selected_user = st.selectbox("分析する選手を選択", user_names)
+    user_id = user_dict[selected_user]
+
+    res = requests.get(f"{API_URL}/users/{user_id}/practices/analytics", timeout=5)
+    
+    if res.status_code == 200 and res.json():
+        df = pd.DataFrame(res.json())
+        df["date"] = pd.to_datetime(df["date"])
+        
+        # --- 分析1：コンディションとスプリントタイムの相関 ---
+        st.subheader("🏃‍♂️ スプリントタイム × コンディション（RPE・睡眠）")
+        # タイムが入力されているスプリントのデータだけを抽出
+        sprint_df = df[(df["category"] == "スプリント") & (df["time_seconds"].notnull()) & (df["time_seconds"] > 0)]
+        
+        if not sprint_df.empty:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**疲労度(RPE)とタイムの相関**")
+                st.scatter_chart(sprint_df, x="rpe", y="time_seconds", color="menu_name")
+            with c2:
+                st.markdown("**睡眠時間とタイムの相関**")
+                st.scatter_chart(sprint_df, x="sleep_hours", y="time_seconds", color="menu_name")
+            st.caption("※点が下にある（タイムが短い）ほど良い記録です。自分にとって最適な睡眠時間やRPEの『スイートスポット』を探しましょう。")
+        else:
+            st.warning("分析可能なスプリントのデータ（タイムあり）がまだありません。")
+
+        st.markdown("---")
+
+        # --- 分析2：ウエイトトレーニングの成長推移 ---
+        st.subheader("🏋️‍♂️ ウエイトトレーニング（最大挙上重量の推移）")
+        weight_df = df[(df["category"] == "ウエイト") & (df["weight"].notnull()) & (df["weight"] > 0)]
+        
+        if not weight_df.empty:
+            # 日付ごとの最大重量をメニュー別に集計してグラフ化
+            max_weight_df = weight_df.groupby(["date", "menu_name"])["weight"].max().reset_index()
+            pivot_df = max_weight_df.pivot(index="date", columns="menu_name", values="weight")
+            st.line_chart(pivot_df)
+        else:
+            st.warning("分析可能なウエイトトレーニングのデータがまだありません。")
+            
+        st.markdown("---")
+        
+        # --- 分析3：練習日誌アーカイブ（履歴一覧） ---
+        st.subheader("📖 練習日誌アーカイブ")
+        
+        # 日付の降順（新しい順）でソート
+        df_sorted = df.sort_values("date", ascending=False)
+        
+        # 日付ごとにグループ化して表示
+        for date, group in df_sorted.groupby("date", sort=False):
+            first_row = group.iloc[0]
+            date_str = date.strftime('%Y-%m-%d')
+            
+            # アコーディオンのタイトル（日付とコンディション概要）
+            title = f"📅 {date_str} | RPE: {first_row['rpe']} | 睡眠: {first_row['sleep_hours']}h"
+            
+            with st.expander(title):
+                # メモがあれば強調表示
+                if 'memo' in first_row and pd.notna(first_row['memo']) and str(first_row['memo']).strip() != "":
+                    st.info(f"**📝 感覚・メモ:** {first_row['memo']}")
+                
+                # メニューをテーブル形式で綺麗に表示するため、列を整理
+                display_df = group[["category", "menu_name", "time_seconds", "times_detail", "distance", "weight", "reps", "sets"]].copy()
+                display_df.columns = ["カテゴリー", "メニュー", "ベスト(秒)", "全タイム", "距離(m)", "重量(kg)", "回数", "セット"]
+                
+                # 見栄えを良くするために、数値がない部分（NaN）を空白文字に変換
+                display_df = display_df.fillna("")
+                
+                # 行番号（インデックス）を隠してスッキリ表示
+                st.dataframe(display_df, hide_index=True, use_container_width=True)
+            
+    else:
+        st.info("練習データがまだ登録されていないか、通信エラーです。")
+

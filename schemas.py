@@ -49,6 +49,7 @@ class PracticeMenuCreate(BaseModel):
     reps: Optional[int] = None
     sets: Optional[int] = None
     time_seconds: Optional[float] = None
+    times_detail: Optional[str] = None
 
 # ＝＝＝ 🏃‍♂️ 練習セッション（親）の受け取りルール ＝＝＝
 class PracticeSessionCreate(BaseModel):

@@ -126,9 +126,34 @@ def create_practice(user_id: int, practice: schemas.PracticeSessionCreate, db: S
             weight=menu.weight,
             reps=menu.reps,
             sets=menu.sets,
-            time_seconds=menu.time_seconds
+            time_seconds=menu.time_seconds,
+            times_detail=menu.times_detail
         )
         db.add(db_menu)
     
     db.commit() 
     return {"message": "練習記録とメニューの保存に成功しました！"}
+
+# ＝＝＝ 📊 分析用データ取得API（新規追加） ＝＝＝
+@app.get("/users/{user_id}/practices/analytics")
+def get_practice_analytics(user_id: int, db: Session = Depends(get_db)):
+    # 親（コンディション）と子（メニュー）を結合し、Pandasで使いやすいフラットなリストにする
+    query = db.query(
+        models.PracticeSession.date,
+        models.PracticeSession.rpe,
+        models.PracticeSession.sleep_hours,
+        models.PracticeSession.body_weight,
+        models.PracticeSession.memo,
+        models.PracticeMenu.category,
+        models.PracticeMenu.menu_name,
+        models.PracticeMenu.distance,
+        models.PracticeMenu.time_seconds,
+        models.PracticeMenu.times_detail,
+        models.PracticeMenu.weight,
+        models.PracticeMenu.reps,
+        models.PracticeMenu.sets
+    ).join(models.PracticeMenu, models.PracticeSession.id == models.PracticeMenu.session_id)\
+     .filter(models.PracticeSession.user_id == user_id).all()
+    
+    # クエリ結果を辞書（JSON）のリストに変換して返す
+    return [dict(row._mapping) for row in query]
