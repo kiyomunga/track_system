@@ -2,7 +2,21 @@ from pydantic import BaseModel
 from datetime import date
 from typing import List, Optional
 
-# --- 記録（MatchResult）の型 ---
+# 🌟 新規追加：ターゲットレース
+class TargetRaceBase(BaseModel):
+    race_name: str
+    race_date: date
+    target_time: float
+
+class TargetRaceCreate(TargetRaceBase):
+    pass
+
+class TargetRace(TargetRaceBase):
+    id: int
+    user_id: int
+    class Config:
+        from_attributes = True
+
 class MatchResultBase(BaseModel):
     date: str
     event_name: str
@@ -12,6 +26,10 @@ class MatchResultBase(BaseModel):
     round: Optional[str] = None
     status: Optional[str] = None
     attempts_detail: Optional[str] = None
+    weather: Optional[str] = None
+    temperature: Optional[float] = None
+    caffeine_mg: Optional[int] = None
+    match_memo: Optional[str] = None
 
 class MatchResultCreate(MatchResultBase):
     pass
@@ -19,11 +37,9 @@ class MatchResultCreate(MatchResultBase):
 class MatchResult(MatchResultBase):
     id: int
     user_id: int
-
     class Config:
         from_attributes = True
 
-# --- 選手（User）の型 ---
 class UserBase(BaseModel):
     name: str
     block: Optional[str] = None
@@ -36,14 +52,15 @@ class UserCreate(UserBase):
 class User(UserBase):
     id: int
     results: List[MatchResult] = []
-
+    targets: List[TargetRace] = [] # 🌟 新規追加
     class Config:
         from_attributes = True
 
-# ＝＝＝ 📝 練習メニュー（子）の受け取りルール ＝＝＝
 class PracticeMenuCreate(BaseModel):
     category: str
     menu_name: str
+    purpose: Optional[str] = None
+    rpe: Optional[int] = None # 🌟 ここに移動！
     distance: Optional[float] = None
     weight: Optional[float] = None
     reps: Optional[int] = None
@@ -51,12 +68,16 @@ class PracticeMenuCreate(BaseModel):
     time_seconds: Optional[float] = None
     times_detail: Optional[str] = None
 
-# ＝＝＝ 🏃‍♂️ 練習セッション（親）の受け取りルール ＝＝＝
 class PracticeSessionCreate(BaseModel):
     date: date
-    rpe: Optional[int] = None
+    # 🚨 rpe はここから削除
     sleep_hours: Optional[float] = None
     body_weight: Optional[float] = None
     memo: Optional[str] = None
-    # 🌟 ここで「複数の子メニュー」をリストとして丸ごと受け取る！
+    calorie: Optional[int] = None
+    protein: Optional[float] = None
+    fat: Optional[float] = None
+    carbo: Optional[float] = None
+    waking_hr: Optional[int] = None
+    creatine_g: Optional[float] = None
     menus: List[PracticeMenuCreate]
