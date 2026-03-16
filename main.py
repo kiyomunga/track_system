@@ -145,3 +145,61 @@ def get_practice_analytics(user_id: int, db: Session = Depends(get_db)):
      .filter(models.PracticeSession.user_id == user_id).all()
     
     return [dict(row._mapping) for row in query]
+
+# ＝＝＝ 🔄 更新（UPDATE）API（フェーズ2追加分） ＝＝＝
+
+# 1. 試合記録の更新（マネージャーが入力した後、選手がコンディションなどを追記する）
+@app.put("/results/{result_id}", response_model=schemas.MatchResult)
+def update_result(result_id: int, result_update: schemas.MatchResultCreate, db: Session = Depends(get_db)):
+    db_result = db.query(models.MatchResult).filter(models.MatchResult.id == result_id).first()
+    if not db_result:
+        raise HTTPException(status_code=404, detail="記録が見つかりません")
+    
+    # 送られてきたデータで既存のレコードを上書き
+    update_data = result_update.model_dump()
+    for key, value in update_data.items():
+        setattr(db_result, key, value)
+        
+    db.commit()
+    db.refresh(db_result)
+    return db_result
+
+# 2. 練習日誌の更新（メニュー変更や、後からRPE・疲労度を追記する）
+@app.put("/practices/{session_id}")
+def update_practice(session_id: int, practice_update: schemas.PracticeSessionCreate, db: Session = Depends(get_db)):
+    db_session = db.query(models.PracticeSession).filter(models.PracticeSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="練習記録が見つかりません")
+        
+    # ① 親データ（コンディション等）の上書き
+    db_session.sleep_hours = practice_update.sleep_hours
+    db_session.body_weight = practice_update.body_weight
+    db_session.waking_hr = practice_update.waking_hr
+    db_session.memo = practice_update.memo
+    db_session.calorie = practice_update.calorie
+    db_session.protein = practice_update.protein
+    db_session.fat = practice_update.fat
+    db_session.carbo = practice_update.carbo
+    db_session.creatine_g = practice_update.creatine_g
+    
+    # ② 子データ（メニュー）の安全な更新：既存メニューを全削除してから再構築
+    db.query(models.PracticeMenu).filter(models.PracticeMenu.session_id == session_id).delete()
+    
+    for menu in practice_update.menus:
+        db_menu = models.PracticeMenu(
+            session_id=db_session.id, 
+            category=menu.category,
+            menu_name=menu.menu_name,
+            purpose=menu.purpose,
+            rpe=menu.rpe,
+            distance=menu.distance,
+            weight=menu.weight,
+            reps=menu.reps,
+            sets=menu.sets,
+            time_seconds=menu.time_seconds,
+            times_detail=menu.times_detail
+        )
+        db.add(db_menu)
+        
+    db.commit()
+    return {"message": "練習記録を更新しました！"}

@@ -47,7 +47,8 @@ global_user_id = user_dict[global_user_name]
 
 st.sidebar.markdown("---")
 mode = st.sidebar.radio("モード選択", [
-    "🏃‍♂️ 選手モード（記録確認）", 
+    "🏃‍♂️ 選手モード（記録確認）",
+    "📥 インボックス（未入力タスク）", 
     "📝 マネージャーモード（管理）", 
     "📱 練習日誌モード（入力）", 
     "📊 アナリティクス（分析）",
@@ -148,6 +149,98 @@ if mode == "🏃‍♂️ 選手モード（記録確認）":
     # 🌟 この一番下の else も、`if history_res.status_code == 200` と同じインデントレベルに合わせました
     else:
         st.info("まだ競技記録が登録されていません。")
+
+# 🟩🟩🟩 新設：インボックス（未入力タスク） 🟩🟩🟩
+elif mode == "📥 インボックス（未入力タスク）":
+    st.title("📥 インボックス（コンディション追記）")
+    st.info("マネージャーが登録した記録のうち、あなたの主観データ（コンディションやメモ）が空っぽのものが「タスク」としてここに溜まります。")
+    
+    user_id = global_user_id
+    st.write(f"👤 **対象選手:** {global_user_name}")
+
+    st.markdown("### 🏁 試合のコンディション入力タスク")
+    matches_res = requests.get(f"{API_URL}/users/{user_id}/results/")
+    if matches_res.status_code == 200 and matches_res.json():
+        df = pd.DataFrame(matches_res.json())
+        
+        # 🌟 1. そもそも列が存在しない（全て空でAPIから省略された）場合の保険
+        if "match_memo" not in df.columns:
+            df["match_memo"] = ""
+            
+        # 🌟 2. どんな型の「空っぽ」でも確実にキャッチする最強の判定関数
+        def is_unentered(val):
+            if pd.isna(val) or val is None: return True
+            if str(val).strip() in ["", "None", "nan", "null"]: return True
+            return False
+            
+        # フィルター適用
+        missing_df = df[df["match_memo"].apply(is_unentered)].copy()
+        
+        # 🐛 3. 原因特定用X線（もしタスクが出なかったら、画面に生のデータを表示します）
+        # st.write("🔍 【デバッグ用】DBに入っている生データ:", df[["competition_name", "match_memo"]])
+
+
+        
+        if not missing_df.empty:
+            # プレイヤーが編集できる列と、マネージャーが入力した固定列を分ける
+            edit_cols = ["id", "date", "competition_name", "event_name", "time_seconds", "weather", "temperature", "caffeine_mg", "match_memo"]
+            display_df = missing_df[edit_cols].copy()
+            
+            st.write(f"🔔 **{len(display_df)}件** の未入力試合データがあります。表のセルを直接クリックして入力してください。")
+            
+            edited_df = st.data_editor(
+                display_df,
+                disabled=["id", "date", "competition_name", "event_name", "time_seconds"], # 🔒 マネージャー管轄の客観データはロック
+                column_config={
+                    "id": None, # IDはシステム用なので隠す
+                    "date": "日付",
+                    "competition_name": "大会名",
+                    "event_name": "種目",
+                    "time_seconds": "記録(秒)",
+                    "weather": st.column_config.SelectboxColumn("天気", options=["晴れ", "くもり", "雨", "雪", "屋内"]),
+                    "temperature": st.column_config.NumberColumn("気温(℃)", format="%.1f"),
+                    "caffeine_mg": st.column_config.NumberColumn("カフェイン(mg)", format="%d"),
+                    "match_memo": st.column_config.TextColumn("試合メモ(感覚など)")
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+            
+            if st.button("💾 試合のコンディションを保存(一括更新)"):
+                sc, err = 0, 0
+                for _, row in edited_df.iterrows():
+                    # 元の完全なデータを取得して、更新分だけマージする
+                    original_row = missing_df[missing_df["id"] == row["id"]].iloc[0].to_dict()
+                    
+                    # APIに送信するペイロードを作成
+                    payload = {
+                        "date": original_row["date"],
+                        "event_name": original_row["event_name"],
+                        "competition_name": original_row["competition_name"],
+                        "time_seconds": original_row["time_seconds"],
+                        "wind": original_row["wind"],
+                        "round": original_row["round"],
+                        "status": original_row["status"],
+                        "attempts_detail": original_row["attempts_detail"],
+                        "weather": row["weather"],
+                        "temperature": row["temperature"],
+                        "caffeine_mg": row["caffeine_mg"],
+                        "match_memo": row["match_memo"]
+                    }
+                    
+                    # 🚀 先ほど作ったPUTリクエストを送信
+                    try:
+                        res = requests.put(f"{API_URL}/results/{row['id']}", json=payload)
+                        if res.status_code == 200: sc += 1
+                        else: err += 1
+                    except: err += 1
+                        
+                if sc > 0: st.success(f"✅ {sc}件のコンディションを更新しました！リロードしてください。")
+                if err > 0: st.error(f"🚨 {err}件の更新に失敗しました。")
+        else:
+            st.success("🎉 現在、未入力の試合データはありません。すべて完了しています！")
+    else:
+        st.info("試合データがまだありません。")
 
 
 # 🟦 モード2：マネージャーモード（入力 ＆ 削除機能）
