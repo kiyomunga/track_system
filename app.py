@@ -365,7 +365,10 @@ elif mode == "📱 練習日誌モード（入力）":
         if st.session_state.menu_count > 1:
             st.session_state.menu_count -= 1
 
-    with st.expander("🍔 本日の食事・栄養・サプリ（独立して保存可能）", expanded=True):
+        # 🌟 タイトルを変更し、日付選択を追加！
+    with st.expander("🍔 食事・栄養・サプリ（独立して保存可能）", expanded=True):
+        meal_date = st.date_input("食事の記録日", datetime.today(), key="meal_date") # 👈 これを追加
+        
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1: cal = st.number_input("カロリー(kcal)", min_value=0, key="cal")
         with c2: pro = st.number_input("タンパク質(g)", min_value=0.0, key="pro")
@@ -375,7 +378,7 @@ elif mode == "📱 練習日誌モード（入力）":
         
         if st.button("🍴 食事・サプリのみ保存"):
             payload = {
-                "date": datetime.today().strftime('%Y-%m-%d'),
+                "date": meal_date.strftime('%Y-%m-%d'), # 👈 固定の「今日」から「選んだ日付」に変更
                 "calorie": cal if cal > 0 else None,
                 "protein": pro if pro > 0.0 else None,
                 "fat": fat if fat > 0.0 else None,
@@ -384,8 +387,9 @@ elif mode == "📱 練習日誌モード（入力）":
                 "menus": [] 
             }
             res = requests.post(f"{API_URL}/users/{user_id}/practices/", json=payload)
-            if res.status_code == 200: st.success("✅ 食事・サプリ記録のみ保存しました！")
+            if res.status_code == 200: st.success(f"✅ {meal_date.strftime('%m/%d')} の食事・サプリ記録を保存しました！")
             else: st.error("保存エラー")
+
 
     st.markdown("---")
 
@@ -409,67 +413,108 @@ elif mode == "📱 練習日誌モード（入力）":
         menus_data = []
         for i in range(st.session_state.menu_count):
             st.markdown(f"**【 メニュー {i+1} 】**")
+            
+            # 🌟 諸悪の根源だったトグルスイッチは廃止！
+            
             mc1, mc2, mc3 = st.columns(3)
             with mc1:
                 category = st.selectbox("カテゴリー", ["スプリント", "ウエイト", "ジャンプ", "ドリル", "その他"], key=f"cat_{i}")
-                menu_name = st.text_input("メニュー名 (例: 60m, ハイクリーン)", key=f"name_{i}")
+                menu_name = st.text_input("メニュー名", placeholder="例: 60m, または 150+120+100", key=f"name_{i}")
                 purpose = st.selectbox("意図・目的", ["設定なし", "筋肥大", "最大筋力", "スピード(神経系)", "持久力", "技術", "回復"], key=f"purp_{i}")
+            
             with mc2:
-                distance = st.number_input("距離(m)", min_value=0.0, value=0.0, key=f"dist_{i}")
-                time_str = st.text_input("タイム(秒) ※カンマ区切り可", placeholder="例: 7.10, 7.15", key=f"time_{i}")
-                # 🌟 RPEがここに移動！メニューごとに独立した強度を持たせます
+                # 🌟 距離もタイムも「最初からテキスト入力」に統一！
+                dist_str = st.text_input("距離(m) ※複数ある場合はカンマ区切り", placeholder="例: 60 または 150, 120", key=f"m_dist_{i}")
+                time_str = st.text_input("タイム(秒) ※カンマ区切り可", placeholder="例: 7.10 または 16.5, 13.2", key=f"m_time_{i}")
                 rpe_val = st.number_input("RPE (1:楽〜10:限界)", min_value=1, max_value=10, value=5, key=f"rpe_{i}")
+                
             with mc3:
                 wt = st.number_input("重量(kg)", min_value=0.0, value=0.0, key=f"wt_{i}")
                 reps = st.number_input("回数(Reps)", min_value=0, value=0, key=f"reps_{i}")
                 sets = st.number_input("セット数", min_value=0, value=0, key=f"sets_{i}")
             
-            best_time = None
-            if time_str.strip():
-                try:
-                    times_list = [float(t.strip()) for t in time_str.split(",") if t.strip()]
-                    if times_list: best_time = min(times_list)
-                except ValueError: pass
+            # 🌟 データ変換ロジック（カンマの有無でPythonが自動判別する最強の処理）
+            d_list = [d.strip() for d in dist_str.split(",") if d.strip()]
+            t_list = [t.strip() for t in time_str.split(",") if t.strip()]
             
+            final_distance = 0.0
+            try:
+                final_distance = sum([float(d) for d in d_list])
+            except ValueError:
+                final_distance = 0.0
+                
+            final_times_detail = None
+            best_time = None
+            
+            if len(d_list) > 1:
+                # 🔍 距離が複数（カンマあり）なら「セット練」として自動処理
+                details = []
+                for idx, d_val in enumerate(d_list):
+                    t_val = t_list[idx] if idx < len(t_list) else ""
+                    details.append(f"{d_val}m({t_val}s)" if t_val else f"{d_val}m")
+                final_times_detail = " ＋ ".join(details)
+            else:
+                # 🔍 距離が1つ（カンマなし）なら「通常の単一メニュー」として自動処理
+                final_times_detail = time_str.strip() if time_str.strip() else None
+                if t_list:
+                    try:
+                        times_float = [float(t) for t in t_list]
+                        if times_float:
+                            best_time = min(times_float)
+                    except ValueError:
+                        pass
+
             menus_data.append({
                 "category": category,
                 "menu_name": menu_name,
                 "purpose": purpose if purpose != "設定なし" else None,
-                "rpe": rpe_val, # 🌟 メニューごとのRPE
-                "distance": distance if distance > 0 else None,
+                "rpe": rpe_val,
+                "distance": final_distance if final_distance > 0 else None,
                 "weight": wt if wt > 0 else None,
                 "reps": reps if reps > 0 else None,
                 "sets": sets if sets > 0 else None,
-                "time_seconds": best_time,
-                "times_detail": time_str.strip() if time_str.strip() else None
+                "time_seconds": best_time, # セット練の場合はNoneになる（正しい挙動）
+                "times_detail": final_times_detail if final_times_detail else None
             })
 
-        submitted = st.form_submit_button("💾 コンディション ＋ 練習を保存")
 
+                    # 🌟 1. フォームの中に「安全装置」を設置
+        st.markdown("---")
+        unlock_save = st.checkbox("🔓 誤送信防止ロックを解除する（入力がすべて終わったらチェック）")
+        submitted = st.form_submit_button("💾 コンディション ➕ 練習を保存")
+
+        # 🌟 2. 保存処理に「ブロック判定」を追加
+        if submitted:
+            # もしチェックボックスにチェックが入っていないなら、弾き返す！
+            if not unlock_save:
+                st.error("🚨 【誤爆防止】入力中のEnterキーによる意図しない送信をブロックしました。保存する場合は上の「🔓 誤送信防止ロックを解除する」にチェックを入れてください。")
+            else:
+                valid_menus = [m for m in menus_data if m["menu_name"].strip() != ""]
+                payload = {
+                    "date": p_date.isoformat(),
+                    "sleep_hours": sleep if sleep > 0 else None,
+                    "body_weight": weight if weight > 0 else None,
+                    "waking_hr": waking_hr if waking_hr > 0 else None,
+                    "memo": memo,
+                    "calorie": cal if cal > 0 else None,
+                    "protein": pro if pro > 0.0 else None,
+                    "fat": fat if fat > 0.0 else None,
+                    "carbo": carb if carb > 0.0 else None,
+                    "creatine_g": cre if cre > 0.0 else None,
+                    "menus": valid_menus
+                }
+                res = requests.post(f"{API_URL}/users/{user_id}/practices/", json=payload)
+                if res.status_code == 200:
+                    st.success("✅ 全データを保存しました！")
+                    st.session_state.menu_count = 1
+                else:
+                    st.error("🚨 保存エラー")
+                    
+    # （ここはそのまま）メニュー増減ボタン
     btn_col1, btn_col2 = st.columns(2)
     with btn_col1: st.button("➕ メニューを増やす", on_click=add_menu, use_container_width=True)
     with btn_col2: st.button("➖ メニューを減らす", on_click=remove_menu, use_container_width=True)
 
-    if submitted:
-        valid_menus = [m for m in menus_data if m["menu_name"].strip() != ""]
-        payload = {
-            "date": p_date.isoformat(), 
-            "sleep_hours": sleep if sleep > 0 else None,
-            "body_weight": weight if weight > 0 else None,
-            "waking_hr": waking_hr if waking_hr > 0 else None,
-            "memo": memo,
-            "calorie": cal if cal > 0 else None,
-            "protein": pro if pro > 0.0 else None,
-            "fat": fat if fat > 0.0 else None,
-            "carbo": carb if carb > 0.0 else None,
-            "creatine_g": cre if cre > 0.0 else None,
-            "menus": valid_menus
-        }
-        res = requests.post(f"{API_URL}/users/{user_id}/practices/", json=payload)
-        if res.status_code == 200:
-            st.success("✅ 全データを保存しました！")
-            st.session_state.menu_count = 1
-        else: st.error("🚨 保存エラー")
 
 
 # 🟩🟩🟩 モード4：アナリティクス（分析） 🟩🟩🟩
@@ -519,17 +564,36 @@ elif mode == "📊 アナリティクス（分析）":
             title = f"📅 {date_str} | 睡眠: {first_row.get('sleep_hours', 'N/A')}h{hr_str}"
             
             with st.expander(title):
+                # 📝 メモがある場合のみメモのテキストを表示
                 if pd.notna(first_row.get('memo')) and str(first_row['memo']).strip() != "":
-                    st.info(f"**📝 メモ:** {first_row['memo']}")
-                
+                    st.markdown(f"**📝 メモ:** {first_row['memo']}")
+            
+                # 🌟 救出：ここから下のコードを「if メモ」の支配下から外に出す（左にズラす）
                 valid_group = group[group["menu_name"].notna()].copy()
                 if not valid_group.empty:
-                    # 🌟 RPEをメニューごとのテーブル列に表示
-                    display_df = valid_group[["category", "menu_name", "rpe", "purpose", "time_seconds", "distance", "weight", "reps", "sets"]].copy()
-                    display_df.columns = ["カテゴリー", "メニュー", "RPE", "意図", "ベスト(秒)", "距離", "重量", "回数", "セット"]
-                    st.dataframe(display_df.fillna(""), hide_index=True, use_container_width=True)
+                    cols = ["category", "menu_name", "rpe", "purpose", "time_seconds", "times_detail", "distance", "weight", "reps", "sets"]
+                    for col in cols:
+                        if col not in valid_group.columns:
+                            valid_group[col] = None
+                            
+                    display_df = valid_group[cols].copy()
+                    display_df.columns = ["カテゴリー", "メニュー", "RPE", "意図", "ベスト(秒)", "セット詳細", "総距離(m)", "重量", "回数", "セット"]
+                    
+                    # PyArrowエラー回避
+                    safe_df = display_df.astype(str).replace(["nan", "None", "<NA>"], "")
+                    st.dataframe(safe_df, hide_index=True, use_container_width=True)
                 else:
                     st.write("※練習メニューの記録はありません")
+                    
+                # 🌟 削除ボタンも「if メモ」の外に置く！
+                session_id = first_row.get("session_id")
+                st.write(f"【デバッグ】バックエンドから届いたID:{session_id}")
+                if pd.notna(session_id):
+                    if st.button("🗑️ この日の記録を削除", key=f"del_prac_{session_id}"):
+                        requests.delete(f"{API_URL}/practices/{int(session_id)}")
+                        st.success("削除しました！画面をリロードしてください。")
+
+
     else:
         st.info("データがありません。")
 
@@ -658,11 +722,26 @@ elif mode == "🎯 ピーキングモード（試合分析）":
                     with st.expander(title):
                         valid_group = group[group["menu_name"].notna()].copy()
                         if not valid_group.empty:
-                            display_df = valid_group[["category", "menu_name", "rpe", "purpose", "time_seconds", "distance", "weight", "reps", "sets"]].copy()
-                            display_df.columns = ["カテゴリー", "メニュー", "RPE", "意図", "ベスト(秒)", "距離", "重量", "回数", "セット"]
-                            st.dataframe(display_df.fillna(""), hide_index=True, use_container_width=True)
+                            cols = ["category", "menu_name", "rpe", "purpose", "time_seconds", "times_detail", "distance", "weight", "reps", "sets"]
+                            for col in cols:
+                                if col not in valid_group.columns:
+                                    valid_group[col] = None
+                                    
+                            display_df = valid_group[cols].copy()
+                            display_df.columns = ["カテゴリー", "メニュー", "RPE", "意図", "ベスト(秒)", "セット詳細", "総距離(m)", "重量", "回数", "セット"]
+                            
+                            # PyArrowエラー回避
+                            safe_df = display_df.astype(str).replace(["nan", "None", "<NA>"], "")
+                            st.dataframe(safe_df, hide_index=True, use_container_width=True)
                         else:
-                            st.write("※練習メニューなし")
+                            st.write("※練習メニューの記録はありません")
+                            
+                        session_id = first_row.get("session_id")
+                        if pd.notna(session_id):
+                            # アナリティクスモードとボタンのIDが被らないように del_peak_ に変更しています
+                            if st.button("🗑️ この日の記録を削除", key=f"del_peak_{session_id}"):
+                                requests.delete(f"{API_URL}/practices/{int(session_id)}")
+                                st.success("削除しました！画面をリロードしてください。")
             else:
                 st.warning("この試合の直前14日間の練習記録がありません。")
     else:

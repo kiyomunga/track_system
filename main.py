@@ -121,6 +121,7 @@ def create_practice(user_id: int, practice: schemas.PracticeSessionCreate, db: S
 @app.get("/users/{user_id}/practices/analytics")
 def get_practice_analytics(user_id: int, db: Session = Depends(get_db)):
     query = db.query(
+        models.PracticeSession.id.label("session_id"),
         models.PracticeSession.date,
         models.PracticeSession.sleep_hours,
         models.PracticeSession.body_weight,
@@ -203,3 +204,18 @@ def update_practice(session_id: int, practice_update: schemas.PracticeSessionCre
         
     db.commit()
     return {"message": "練習記録を更新しました！"}
+
+# ＝＝＝ 🗑️ 削除（DELETE）API ＝＝＝
+@app.delete("/practices/{session_id}")
+def delete_practice(session_id: int, db: Session = Depends(get_db)):
+    db_session = db.query(models.PracticeSession).filter(models.PracticeSession.id == session_id).first()
+    if not db_session:
+        raise HTTPException(status_code=404, detail="記録が見つかりません")
+    
+    # 子データ（練習メニュー）を先に全て消す
+    db.query(models.PracticeMenu).filter(models.PracticeMenu.session_id == session_id).delete()
+    # 親データ（コンディション等）を消す
+    db.delete(db_session)
+    db.commit()
+    
+    return {"message": "練習記録を完全に削除しました"}
