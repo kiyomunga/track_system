@@ -530,15 +530,43 @@ elif mode == "📊 アナリティクス（分析）":
         df = pd.DataFrame(res.json())
         df["date"] = pd.to_datetime(df["date"])
         
-        st.subheader("🏃‍♂️ スプリントタイム × コンディション")
-        sprint_df = df[(df["category"] == "スプリント") & (df["time_seconds"].notnull()) & (df["time_seconds"] > 0)]
+        # 🌟 過去14日間のピーキングダッシュボードに差し替え！
+        st.subheader("📊 直近2週間の負荷 ＆ コンディション推移")
         
-        if not sprint_df.empty:
-            c1, c2 = st.columns(2)
-            # 🌟 rpe がメニュー単位になったため、より正確な相関が出ます
-            with c1: st.scatter_chart(sprint_df, x="rpe", y="time_seconds", color="menu_name")
-            with c2: st.scatter_chart(sprint_df, x="sleep_hours", y="time_seconds", color="menu_name")
-        else: st.warning("スプリントデータがありません。")
+        # 531行目で既に datetime 型に変換されているので、現在時刻から14日前を計算
+        fourteen_days_ago = pd.Timestamp.today().normalize() - pd.Timedelta(days=14)
+        recent_df = df[df["date"] >= fourteen_days_ago].copy()
+        
+        if not recent_df.empty:
+            # 負荷計算（スプリントのRPE^2距離、ウエイトのトネージ）
+            recent_df["sprint_load"] = recent_df.apply(lambda row: (row["rpe"]**2) * row["distance"] if row["category"] == "スプリント" and pd.notna(row["rpe"]) and pd.notna(row["distance"]) else 0, axis=1)
+            recent_df["weight_load"] = recent_df.apply(lambda row: row["weight"] * row["reps"] * row["sets"] if row["category"] == "ウエイト" and pd.notna(row["weight"]) and pd.notna(row["reps"]) and pd.notna(row["sets"]) else 0, axis=1)
+            
+            # 日付ごとに集計
+            daily_recent_df = recent_df.groupby("date").agg({
+                "sprint_load": "sum",
+                "weight_load": "sum",
+                "sleep_hours": "max",
+                "waking_hr": "max"
+            }).reset_index()
+            
+            # グラフ描画（Altair）
+            x_axis = alt.X('date:T', title='日付', axis=alt.Axis(format='%m/%d'))
+            
+            st.write("**■ 🏃‍♂️ スプリント総負荷**")
+            st.altair_chart(alt.Chart(daily_recent_df).mark_bar(opacity=0.8, color='#4682B4').encode(x=x_axis, y=alt.Y('sprint_load:Q', title='スプリント負荷')), use_container_width=True)
+            
+            st.write("**■ 🏋️‍♂️ ウエイト・トネージ (kg)**")
+            st.altair_chart(alt.Chart(daily_recent_df).mark_bar(opacity=0.8, color='#2E8B57').encode(x=x_axis, y=alt.Y('weight_load:Q', title='ウエイト負荷')), use_container_width=True)
+            
+            st.write("**■ 💤 睡眠時間 (h)**")
+            st.altair_chart(alt.Chart(daily_recent_df).mark_line(color='#FF4500', point=True).encode(x=x_axis, y=alt.Y('sleep_hours:Q', title='睡眠時間(h)', scale=alt.Scale(zero=False))), use_container_width=True)
+            
+            st.write("**■ ❤️ 起床時心拍数 (bpm)**")
+            st.altair_chart(alt.Chart(daily_recent_df).mark_line(color='#8A2BE2', point=True).encode(x=x_axis, y=alt.Y('waking_hr:Q', title='心拍数(bpm)', scale=alt.Scale(zero=False))), use_container_width=True)
+        else:
+            st.info("直近14日間のデータがありません。")
+
 
         st.markdown("---")
         st.subheader("🏋️‍♂️ ウエイトトレーニング推移（意図別）")
@@ -692,17 +720,41 @@ elif mode == "🎯 ピーキングモード（試合分析）":
                     "protein": "max", "fat": "max", "carbo": "max", "creatine_g": "max"
                 }).reset_index()
 
-                st.write("**■ スプリント負荷（棒） × 睡眠時間（折れ線）**")
-                base1 = alt.Chart(daily_df).encode(x=alt.X('date:T', title='日付', axis=alt.Axis(format='%m/%d')))
-                bar1 = base1.mark_bar(opacity=0.6, color='#4682B4').encode(y=alt.Y('sprint_load:Q', title='スプリント総負荷'))
-                line1 = base1.mark_line(color='#FF4500', point=True).encode(y=alt.Y('sleep_hours:Q', title='睡眠時間 (h)', scale=alt.Scale(domain=[0, 12])))
-                st.altair_chart(alt.layer(bar1, line1).resolve_scale(y='independent'), use_container_width=True)
+                # 共通のX軸設定（日付フォーマットを統一）
+                x_axis = alt.X('date:T', title='日付', axis=alt.Axis(format='%m/%d'))
 
-                st.write("**■ ウエイト負荷（棒） × 起床時心拍数（折れ線）**")
-                base2 = alt.Chart(daily_df).encode(x=alt.X('date:T', title='日付', axis=alt.Axis(format='%m/%d')))
-                bar2 = base2.mark_bar(opacity=0.6, color='#2E8B57').encode(y=alt.Y('weight_load:Q', title='ウエイト・トネージ(kg)'))
-                line2 = base2.mark_line(color='#8A2BE2', point=True).encode(y=alt.Y('waking_hr:Q', title='起床時心拍数 (bpm)', scale=alt.Scale(zero=False)))
-                st.altair_chart(alt.layer(bar2, line2).resolve_scale(y='independent'), use_container_width=True)
+                # 1. 🏃‍♂️ スプリント負荷グラフ（棒）
+                st.write("**■ 🏃‍♂️ スプリント総負荷**")
+                chart_sprint = alt.Chart(daily_df).mark_bar(opacity=0.8, color='#4682B4').encode(
+                    x=x_axis, 
+                    y=alt.Y('sprint_load:Q', title='スプリント負荷')
+                )
+                st.altair_chart(chart_sprint, use_container_width=True)
+
+                # 2. 🏋️‍♂️ ウエイト負荷グラフ（棒）
+                st.write("**■ 🏋️‍♂️ ウエイト・トネージ (kg)**")
+                chart_weight = alt.Chart(daily_df).mark_bar(opacity=0.8, color='#2E8B57').encode(
+                    x=x_axis, 
+                    y=alt.Y('weight_load:Q', title='ウエイト負荷')
+                )
+                st.altair_chart(chart_weight, use_container_width=True)
+
+                # 3. 💤 睡眠時間グラフ（折れ線）
+                st.write("**■ 💤 睡眠時間 (h)**")
+                chart_sleep = alt.Chart(daily_df).mark_line(color='#FF4500', point=True).encode(
+                    x=x_axis, 
+                    y=alt.Y('sleep_hours:Q', title='睡眠時間(h)', scale=alt.Scale(zero=False))
+                )
+                st.altair_chart(chart_sleep, use_container_width=True)
+
+                # 4. ❤️ 起床時心拍数グラフ（折れ線）
+                st.write("**■ ❤️ 起床時心拍数 (bpm)**")
+                chart_hr = alt.Chart(daily_df).mark_line(color='#8A2BE2', point=True).encode(
+                    x=x_axis, 
+                    y=alt.Y('waking_hr:Q', title='心拍数(bpm)', scale=alt.Scale(zero=False))
+                )
+                st.altair_chart(chart_hr, use_container_width=True)
+
 
                 st.markdown("#### 🍗 直前14日間の摂取栄養・サプリメント")
                 nut_df = daily_df[["date", "protein", "fat", "carbo", "creatine_g"]].copy()
